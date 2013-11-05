@@ -3,57 +3,94 @@ var request = require('request');
 var cheerio = require('cheerio');
 var fs = require('fs');
 
-var sourceUrls = { 
-	GpuGems: "http://http.developer.nvidia.com/GPUGems/gpugems_part01.html", 
-	GpuGems2: "http://http.developer.nvidia.com/GPUGems2/gpugems2_part01.html", 
-	GpuGems3: "http://http.developer.nvidia.com/GPUGems3/gpugems3_ch01.html" 
+var deleteFolderRecursive = function(path) {
+	if( fs.existsSync(path) ) {
+		fs.readdirSync(path).forEach(function(file,index){
+			var curPath = path + "/" + file;
+			if (fs.statSync(curPath).isDirectory()) {
+				deleteFolderRecursive(curPath);
+			} else { // delete file
+				fs.unlinkSync(curPath);
+			}
+		});
+		fs.rmdirSync(path);
+	}
 };
 
-request(sourceUrls.GpuGems, function(error, response, body){
-	if (error) {
-		throw error;
-	}
-	$ = cheerio.load(body);
-	
-	var allPages = [];
-	$("#right a").each(function(){
-		allPages.push({
-			url: $(this).attr("href"),
-			title: $(this).html()	// TODO: Retrieve inner most title (as current page has extra tags)
-		});
-	});
+var sources = { 
+	GPUGems: { root: "http://http.developer.nvidia.com/GPUGems/", start: "gpugems_part01.html" }, 
+	GPUGems2: { root: "http://http.developer.nvidia.com/GPUGems2/", start: "gpugems2_part01.html" }, 
+	GPUGems3: { root: "http://http.developer.nvidia.com/GPUGems3/", start: "gpugems3_ch01.html" } 
+};
 
-	var root = "http://http.developer.nvidia.com/GPUGems/"; // Need to key this on book globally and the output directory (currently hardcoded as "GPUGems/")
-	// TODO: Create Output directory if required
-	for(var i = 0, l = allPages.length; i < l; i++) {
-		request(root + allPages[i].url, function(root, title, path) { 
-			return function(error, response, body) {
-				util.log("Reaping " + path);
-				$ = cheerio.load(body);
+for(var key in sources) {
+	if(!sources.hasOwnProperty(key)) { continue; }
 
-				var html = "<html><head><title>" + title + "</title></head><body>";
-				// TODO: Include <nav> with allPages info
-				html += $("#center").html();
-				html += "</body></html>";
+	deleteFolderRecursive(key); // Clear Existing  
+	fs.mkdirSync(key);
+	fs.mkdirSync(key+"/elementLinks"); // TODO: Detect this when retrieving images instead of knowing
+	fs.writeFile(key+"/styles.css", [ "body { font-family: sans-serif; } ",
+		"nav ul, nav li { list-style: none; margin: 0; padding: 0; }",
+		"code, pre { font-family: monospace; background-color: #EEEEEE; }",
+		"@media print {",
+		"nav { display: none; }",
+		"}"].join('\n'));
 
-				$("#center img").each(function(){
-					var filePath = $(this).attr("src"); 
-					// TODO: proper path parsing - create necessary directories - currently just added "elementLinks/" manually
-					request(root + filePath).pipe(fs.createWriteStream("GPUGems/"+filePath));
-				});
+	request(sources[key].root + sources[key].start, function(root, outputDir) { 
+		return function(error, response, body){
+			if (error) { throw error; }
 
-				fs.writeFile("GPUGems/" + path, html, function(path) { 
-					return function(error) {
-						if(error) {
-							util.log("Error writing file " + path);
-						} else {
-							util.log("Wrote file " + path);
-						}
-					}
-				}(path)); 
-			}; 
-		}(root, allPages[i].title, allPages[i].url));
-	}
-});
+			$ = cheerio.load(body);
+			
+			var allPages = [];
+			$("#right a").each(function(){
+				var url = $(this).attr("href");
+				// This isn't sucessfully removing the styling from the active page
+				var title = $(this).children("i").length ? $(this).children("i").html() : $(this).html();
+				allPages.push({ url: url, title: title });
+			});
 
-// TODO: Retrieve GPUGems2 and GPUGems3
+			var nav = [ "<nav>", "<ul>"];
+			for(var i = 0, l = allPages.length; i < l; i++) {
+				nav.push("<li><a href=\"" + allPages[i].url + "\">" + allPages[i].title + "</a></li>");
+			}
+			nav.push("</ul>");
+			nav.push("</nav>");
+
+			for(var i = 0, l = allPages.length; i < l; i++) {
+				request(root + allPages[i].url, function(root, title, path, nav) { 
+					return function(error, response, body) {
+						util.log("Reaping " + path);
+						$ = cheerio.load(body);
+
+						$("#center").remove("script");
+						var content = $("#center").html();	
+
+						html = [ "<!DOCTYPE html>",
+							"<html>",
+							"<head>",
+							"<meta charset=\"utf-8\"/>",
+							"<title>" + title + "</title>",
+							"<link rel=\"stylesheet\" href=\"styles.css\" type=\"text/css\">",
+							"</head>",
+							"<body>",
+							"<!-- Reaped from " + root + path + " -->",
+							content.substring(
+								content.indexOf("<hr>")+4,
+								content.indexOf("<!-- generated html end")),
+							nav,
+							"</body>",
+							"</html>" ].join('\n');
+
+						$("#center img").each(function(){
+							var filePath = $(this).attr("src"); 
+							util.log("Reaping " + filePath);
+							request(root + filePath).pipe(fs.createWriteStream(outputDir + "/" + filePath));
+						});
+						fs.writeFile(outputDir + "/" + path, html); 
+					}; 
+				}(root, allPages[i].title, allPages[i].url, nav.join('\n')));
+			}
+		};
+	}(sources[key].root, key));
+}
