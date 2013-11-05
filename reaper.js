@@ -79,10 +79,12 @@ for(var key in sources) {
 							"<link rel=\"stylesheet\" href=\"styles.css\" type=\"text/css\">",
 							"</head>",
 							"<body>",
+							"<div id=\"content\">",
 							"<!-- Reaped from " + root + path + " -->",
 							content.substring(
 								content.indexOf("<hr>")+4,
 								content.indexOf("<!-- generated html end")),
+							"</div>",
 							nav,
 							"</body>",
 							"</html>" ].join('\n');
