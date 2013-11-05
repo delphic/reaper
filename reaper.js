@@ -16,11 +16,12 @@ var deleteFolderRecursive = function(path) {
 		fs.rmdirSync(path);
 	}
 };
-
+ 
+// Uncomment as required, cba to figure out why it errors if you do all at once
 var sources = { 
 	GPUGems: { root: "http://http.developer.nvidia.com/GPUGems/", start: "gpugems_part01.html" }, 
-	GPUGems2: { root: "http://http.developer.nvidia.com/GPUGems2/", start: "gpugems2_part01.html" }, 
-	GPUGems3: { root: "http://http.developer.nvidia.com/GPUGems3/", start: "gpugems3_ch01.html" } 
+	//GPUGems2: { root: "http://http.developer.nvidia.com/GPUGems2/", start: "gpugems2_part01.html" }, 
+	//GPUGems3: { root: "http://http.developer.nvidia.com/GPUGems3/", start: "gpugems3_part01.html" } 
 };
 
 for(var key in sources) {
@@ -40,13 +41,18 @@ for(var key in sources) {
 		return function(error, response, body){
 			if (error) { throw error; }
 
+			util.log("Reaping "+root);
+
 			$ = cheerio.load(body);
 			
 			var allPages = [];
 			$("#right a").each(function(){
 				var url = $(this).attr("href");
-				// This isn't sucessfully removing the styling from the active page
-				var title = $(this).children("i").length ? $(this).children("i").html() : $(this).html();
+				var title = $(this).children("i").children("font").children("b").children("i").html() 
+					? $(this).children("i").children("font").children("b").children("i").html() 
+					: $(this).children("i").html() 
+						? $(this).children("i").html() 
+						: $(this).html();
 				allPages.push({ url: url, title: title });
 			});
 
@@ -60,7 +66,6 @@ for(var key in sources) {
 			for(var i = 0, l = allPages.length; i < l; i++) {
 				request(root + allPages[i].url, function(root, title, path, nav) { 
 					return function(error, response, body) {
-						util.log("Reaping " + path);
 						$ = cheerio.load(body);
 
 						$("#center").remove("script");
@@ -84,7 +89,6 @@ for(var key in sources) {
 
 						$("#center img").each(function(){
 							var filePath = $(this).attr("src"); 
-							util.log("Reaping " + filePath);
 							request(root + filePath).pipe(fs.createWriteStream(outputDir + "/" + filePath));
 						});
 						fs.writeFile(outputDir + "/" + path, html); 
